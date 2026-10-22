@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>시각 알림 카운트다운</title>
+  <meta name="description" content="남은 시간을 큰 숫자와 배경색·점멸로 보여주는 카운트다운">
+  <meta name="theme-color" content="#141518">
+  <meta name="color-scheme" content="dark">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="카운트다운">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="icon" href="icons/icon-192.png" sizes="192x192" type="image/png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <!-- 배경 레이어: 숫자와 분리되어 있어 배경만 점멸한다 -->
+  <div id="bg" aria-hidden="true"><div id="bg-overlay"></div></div>
+
+  <main id="app">
+    <div class="status-row">
+      <span id="status-pill" class="pill">대기</span>
+    </div>
+
+    <div id="display" class="display">
+      <div id="time" class="time" role="timer" aria-live="off" aria-atomic="true" aria-label="남은 시간">20:00</div>
+    </div>
+
+    <div id="quick" class="quick" role="group" aria-label="빠른 시간 선택">
+      <button type="button" class="chip" data-min="5">5분</button>
+      <button type="button" class="chip" data-min="10">10분</button>
+      <button type="button" class="chip" data-min="15">15분</button>
+      <button type="button" class="chip" data-min="20">20분</button>
+      <button type="button" class="chip" data-min="30">30분</button>
+      <button type="button" class="chip" data-min="60">60분</button>
+      <button type="button" class="chip chip-ghost" id="custom-time">직접 입력</button>
+    </div>
+
+    <nav id="controls" class="controls" aria-label="타이머 제어">
+      <button type="button" id="btn-main" class="btn btn-primary">
+        <svg class="ico ico-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l13-7.5z"/></svg>
+        <svg class="ico ico-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4h4.5v16H6zM13.5 4H18v16h-4.5z"/></svg>
+        <span id="btn-main-label">시작</span>
+      </button>
+      <button type="button" id="btn-reset" class="btn">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5V2L7 6l5 4V7a5 5 0 1 1-5 5H5a7 7 0 1 0 7-7z"/></svg>
+        <span>초기화</span>
+      </button>
+      <button type="button" id="btn-full" class="btn" aria-pressed="false">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5v2H6v3zm11-5h5v5h-2V6h-3zM6 15v3h3v2H4v-5zm12 0h2v5h-5v-2h3z"/></svg>
+        <span id="btn-full-label">전체화면</span>
+      </button>
+      <button type="button" id="btn-settings" class="btn">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3h-4l-.4 2.9a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.4 7.4 0 0 0 1.7 1L11 21h4l.4-2.9a7.4 7.4 0 0 0 1.7-1l2.5 1 2-3.5zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg>
+        <span>설정</span>
+      </button>
+    </nav>
+
+    <div id="toast" class="toast" aria-hidden="true"></div>
+  </main>
+
+  <!-- 화면 읽기 프로그램용: 매초가 아니라 주요 상태 변화만 알린다 -->
+  <div id="live" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+
+  <!-- 확인 대화상자 (초기화 확인, 실행 중 설정 열기 안내) -->
+  <dialog id="confirm" class="confirm" aria-labelledby="confirm-title" aria-describedby="confirm-msg">
+    <form method="dialog">
+      <h2 id="confirm-title">확인</h2>
+      <p id="confirm-msg"></p>
+      <div class="confirm-actions">
+        <button type="submit" value="cancel" class="btn" id="confirm-cancel">취소</button>
+        <button type="submit" value="ok" class="btn btn-primary" id="confirm-ok">확인</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- 설정 -->
+  <dialog id="settings" class="settings" aria-labelledby="settings-title">
+    <form id="settings-form" novalidate>
+      <header class="settings-head">
+        <h2 id="settings-title">설정</h2>
+        <p id="storage-note" class="note warn" hidden>이 브라우저에서는 설정을 저장할 수 없어 현재 화면을 닫기 전까지만 적용됩니다.</p>
+      </header>
+
+      <div class="settings-body">
+        <!-- 1. 카운트다운 시간 -->
+        <section class="sec" aria-labelledby="h-duration">
+          <h3 id="h-duration">1. 카운트다운 시간</h3>
+          <div class="minsec" role="group" aria-labelledby="h-duration">
+            <label><input type="number" id="dur-min" inputmode="numeric" min="0" max="5999" step="1" autocomplete="off"> 분</label>
+            <label><input type="number" id="dur-sec" inputmode="numeric" min="0" max="59" step="1" autocomplete="off"> 초</label>
+          </div>
+          <div class="quick quick-in-settings" role="group" aria-label="빠른 시간 선택">
+            <button type="button" class="chip" data-set-min="5">5분</button>
+            <button type="button" class="chip" data-set-min="10">10분</button>
+            <button type="button" class="chip" data-set-min="15">15분</button>
+            <button type="button" class="chip" data-set-min="20">20분</button>
+            <button type="button" class="chip" data-set-min="30">30분</button>
+            <button type="button" class="chip" data-set-min="60">60분</button>
+          </div>
+          <p id="dur-error" class="note error" role="alert" hidden></p>
+          <p id="dur-pending" class="note" hidden>진행 중인 카운트다운에는 바로 적용되지 않습니다. 초기화하면 새 시간이 적용됩니다.</p>
+        </section>
+
+        <!-- 2. 기본 배경색 -->
+        <section class="sec" aria-labelledby="h-base">
+          <h3 id="h-base">2. 기본 배경색</h3>
+          <div class="color-picker" data-field="baseColor" data-presets="base" aria-labelledby="h-base"></div>
+        </section>
+
+        <!-- 3. 배경색 변경 알림 -->
+        <section class="sec" aria-labelledby="h-color">
+          <h3 id="h-color">3. 배경색 변경 알림</h3>
+          <label class="switch"><input type="checkbox" id="color-on"> <span>사용</span></label>
+          <fieldset id="color-fields" class="sub">
+            <legend>남은 시간 기준</legend>
+            <div class="minsec">
+              <label>남은 시간 <input type="number" id="color-min" inputmode="numeric" min="0" max="5999" step="1" autocomplete="off"> 분</label>
+              <label><input type="number" id="color-sec" inputmode="numeric" min="0" max="59" step="1" autocomplete="off"> 초 이하</label>
+            </div>
+            <p id="color-error" class="note error" role="alert" hidden></p>
+            <p class="field-label" id="color-color-label">변경 색상</p>
+            <div class="color-picker" data-field="colorAlert.color" data-presets="alert" aria-labelledby="color-color-label"></div>
+          </fieldset>
+          <ul id="color-notes" class="notes"></ul>
+        </section>
+
+        <!-- 4. 배경 점멸 알림 -->
+        <section class="sec" aria-labelledby="h-blink">
+          <h3 id="h-blink">4. 배경 점멸 알림</h3>
+          <label class="switch"><input type="checkbox" id="blink-on"> <span>사용</span></label>
+          <fieldset id="blink-fields" class="sub">
+            <legend>남은 시간 기준</legend>
+            <div class="minsec">
+              <label>남은 시간 <input type="number" id="blink-min" inputmode="numeric" min="0" max="5999" step="1" autocomplete="off"> 분</label>
+              <label><input type="number" id="blink-sec" inputmode="numeric" min="0" max="59" step="1" autocomplete="off"> 초 이하</label>
+            </div>
+            <p id="blink-error" class="note error" role="alert" hidden></p>
+            <p class="field-label" id="blink-color-label">점멸 색상</p>
+            <div class="color-picker" data-field="blinkAlert.color" data-presets="alert" aria-labelledby="blink-color-label"></div>
+            <p class="field-label" id="blink-speed-label">점멸 속도</p>
+            <div class="segmented" role="radiogroup" aria-labelledby="blink-speed-label">
+              <label><input type="radio" name="blink-speed" value="slow"> <span>느리게 (2초 주기)</span></label>
+              <label><input type="radio" name="blink-speed" value="normal"> <span>보통 (1.5초 주기)</span></label>
+            </div>
+            <div id="rm-box" class="rm-box" hidden>
+              <p class="note warn">기기에 ‘동작 줄이기’가 켜져 있어, 점멸 대신 점멸 색상의 고정 배경과 ‘종료 임박’ 문구로 알립니다.</p>
+              <label class="check"><input type="checkbox" id="blink-rm-override"> <span>그래도 점멸 사용</span></label>
+            </div>
+          </fieldset>
+          <ul id="blink-notes" class="notes"></ul>
+        </section>
+
+        <!-- 5. 종료 배경색 -->
+        <section class="sec" aria-labelledby="h-end">
+          <h3 id="h-end">5. 종료 배경색</h3>
+          <div class="color-picker" data-field="endColor" data-presets="alert" aria-labelledby="h-end"></div>
+        </section>
+
+        <!-- 6. 화면 꺼짐 방지 -->
+        <section class="sec" aria-labelledby="h-wake">
+          <h3 id="h-wake">6. 화면 꺼짐 방지</h3>
+          <label class="check"><input type="checkbox" id="wake-on"> <span>실행 중 화면 꺼짐 방지 사용</span></label>
+          <p id="wake-note" class="note"></p>
+        </section>
+
+        <!-- 7. 알림 미리보기 -->
+        <section class="sec" aria-labelledby="h-preview">
+          <h3 id="h-preview">7. 알림 미리보기</h3>
+          <p class="note">저장하지 않은 지금 설정으로 기본 배경 → 배경색 변경 → 점멸 → 시간 종료 화면을 몇 초씩 보여줍니다. 실제 타이머 시간은 바뀌지 않습니다.</p>
+          <button type="button" id="preview-start" class="btn">미리보기 시작</button>
+        </section>
+      </div>
+
+      <!-- 8. 저장 / 취소 / 기본값 복원 -->
+      <footer class="settings-foot">
+        <button type="button" id="settings-defaults" class="btn btn-quiet">기본값 복원</button>
+        <span class="spacer"></span>
+        <button type="button" id="settings-cancel" class="btn">취소</button>
+        <button type="submit" id="settings-save" class="btn btn-primary">저장</button>
+      </footer>
+    </form>
+
+    <!-- 미리보기 화면 (설정 대화상자 위에 덮어서 표시) -->
+    <div id="preview" class="preview" hidden>
+      <div class="preview-bg"><div class="preview-overlay"></div></div>
+      <div class="preview-content">
+        <span class="pill preview-pill">미리보기</span>
+        <div class="preview-time">04:59</div>
+        <p class="preview-step"></p>
+        <button type="button" id="preview-stop" class="btn btn-primary">미리보기 종료</button>
+      </div>
+    </div>
+  </dialog>
+
+  <script src="js/timer.js"></script>
+  <script src="js/alerts.js"></script>
+  <script src="js/settings.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
