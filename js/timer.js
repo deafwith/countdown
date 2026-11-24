@@ -134,18 +134,5 @@
     return h > 0 ? p(h) + ':' + p(m) + ':' + p(s) : p(m) + ':' + p(s);
   }
 
-  /** 초 → "20분", "1시간 5분 30초" 같은 읽기용 문자열 */
-  function describeDuration(totalSec) {
-    totalSec = Math.max(0, Math.floor(totalSec));
-    var h = Math.floor(totalSec / 3600);
-    var m = Math.floor((totalSec % 3600) / 60);
-    var s = totalSec % 60;
-    var parts = [];
-    if (h) parts.push(h + '시간');
-    if (m) parts.push(m + '분');
-    if (s || !parts.length) parts.push(s + '초');
-    return parts.join(' ');
-  }
-
-  return { Countdown: Countdown, formatTime: formatTime, describeDuration: describeDuration };
+  return { Countdown: Countdown, formatTime: formatTime };
 });

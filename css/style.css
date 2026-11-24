@@ -21,6 +21,11 @@
           Roboto, "Noto Sans KR", sans-serif;
 }
 
+:root:lang(ja) {
+  --font: system-ui, -apple-system, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Yu Gothic",
+          Meiryo, "Noto Sans JP", sans-serif;
+}
+
 * { box-sizing: border-box; }
 
 html, body {
@@ -278,7 +283,36 @@ dialog::backdrop { background: rgba(0, 0, 0, .6); }
   height: 100%;
 }
 .settings-head { padding: 18px 22px 8px; border-bottom: 1px solid var(--line); }
-.settings-head h2 { margin: 0 0 8px; font-size: 1.35rem; }
+.settings-head h2 { margin: 0; font-size: 1.35rem; }
+.settings-head-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.lang-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 0 4px 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel-2);
+  cursor: pointer;
+}
+.lang-select select {
+  min-height: 46px;
+  padding: 0 10px 0 2px;
+  border: 0;
+  background: transparent;
+  color: #fff;
+  font-size: 1.05rem;
+  cursor: pointer;
+}
+.lang-select select option { background: var(--panel-2); color: #fff; }
 .settings-body {
   flex: 1 1 auto;
   min-height: 0;

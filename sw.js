@@ -3,7 +3,7 @@
  * 전략: 캐시 먼저 보여주고, 온라인이면 뒤에서 새 파일로 캐시를 갱신(stale-while-revalidate).
  * 파일 구성을 바꾸면 CACHE 이름의 버전을 올린다.
  */
-var CACHE = 'visual-countdown-v1';
+var CACHE = 'visual-countdown-v2';
 var ASSETS = [
   './',
   './index.html',
@@ -11,8 +11,12 @@ var ASSETS = [
   './js/timer.js',
   './js/alerts.js',
   './js/settings.js',
+  './js/i18n.js',
   './js/app.js',
   './manifest.webmanifest',
+  './manifest-ja.webmanifest',
+  './manifest-en.webmanifest',
+  './manifest-vi.webmanifest',
   './icons/icon.svg',
   './icons/icon-192.png',
   './icons/icon-512.png',

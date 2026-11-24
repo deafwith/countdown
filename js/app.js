@@ -36,12 +36,14 @@
 
   function persistTimer() { store.saveTimer(timer.toJSON()); }
 
-  /** "20초" + 로, "20분" + 으로 처럼 받침에 맞는 조사 */
-  function withRo(word) {
-    var code = word.charCodeAt(word.length - 1) - 0xac00;
-    var jong = code >= 0 && code <= 11171 ? code % 28 : 0;
-    return word + (jong === 0 || jong === 8 ? '로' : '으로');
-  }
+  // ---- 언어 ----
+  // 주소에 ?lang=ja 처럼 붙이면 그 언어로 열고 기억한다.
+  var urlLang = '';
+  try { urlLang = new URLSearchParams(location.search).get('lang') || ''; } catch (e) { /* 무시 */ }
+  if (urlLang && V.LANGS.some(function (l) { return l.code === urlLang; })) store.saveLang(urlLang);
+  var t = V.translator(V.detectLang(store.loadLang(), navigator.languages || [navigator.language]));
+  function dur(sec) { return t.duration(sec); }
+  function phaseLabel(a) { return a.labelKey ? t('ph_' + a.labelKey) : ''; }
 
   // ---- 알림(화면 읽기 프로그램 / 토스트) ----
   var liveTimer = 0;
@@ -127,7 +129,7 @@
     updateStatusUI(a);
 
     if (timer.status === 'running' && a.phase !== last.phase && (a.phase === 'color' || a.phase === 'blink')) {
-      announce(a.label + '. ' + V.describeDuration(sec) + ' 남았습니다.');
+      announce(t('ann_phase', { label: phaseLabel(a), dur: dur(sec) }));
     }
     last.phase = a.phase;
     scheduleTick();
@@ -149,17 +151,17 @@
       body.classList.remove('st-idle', 'st-running', 'st-paused', 'st-finished');
       body.classList.add('st-' + st);
       last.status = st;
-      var label = { idle: '시작', running: '일시정지', paused: '이어서 시작', finished: '시작' }[st];
+      var label = t({ idle: 'start', running: 'pause', paused: 'resume', finished: 'start' }[st]);
       el.btnMainLabel.textContent = label;
       el.btnMain.disabled = st === 'finished';
-      el.btnMain.setAttribute('aria-label', label + ' (스페이스 키)');
+      el.btnMain.setAttribute('aria-label', t('keySpace', { label: label }));
       updateQuickChips();
     }
-    var pill;
-    if (st === 'idle') pill = '대기 · ' + V.describeDuration(timer.durationMs / 1000);
-    else if (st === 'finished') pill = '시간 종료';
-    else if (st === 'paused') pill = '일시정지' + (a.label ? ' · ' + a.label : '');
-    else pill = a.label || '진행 중';
+    var pill, ph = phaseLabel(a);
+    if (st === 'idle') pill = t('st_idle') + ' · ' + dur(timer.durationMs / 1000);
+    else if (st === 'finished') pill = t('ph_end');
+    else if (st === 'paused') pill = t('st_paused') + (ph ? ' · ' + ph : '');
+    else pill = ph || t('st_running');
     if (el.pill.textContent !== pill) el.pill.textContent = pill;
   }
 
@@ -172,7 +174,7 @@
 
   function onFinished() {
     persistTimer();
-    announce('시간 종료');
+    announce(t('ph_end'));
     updateWakeLock();
   }
 
@@ -181,16 +183,16 @@
     if (isDialogOpen()) return;
     var st = timer.status;
     if (st === 'idle') {
-      if (timer.durationMs <= 0) { toast('0초보다 큰 시간을 설정해 주세요.'); return; }
+      if (timer.durationMs <= 0) { toast(t('toast_zero')); return; }
       timer.start();
       wakeNoticeShown = false;
-      announce('카운트다운 시작. ' + V.describeDuration(timer.durationMs / 1000));
+      announce(t('ann_start', { dur: dur(timer.durationMs / 1000) }));
     } else if (st === 'running') {
       if (!timer.pause()) { render(); return; }
-      announce('일시정지. ' + V.describeDuration(Math.ceil(timer.remaining() / 1000)) + ' 남음');
+      announce(t('ann_pause', { dur: dur(Math.ceil(timer.remaining() / 1000)) }));
     } else if (st === 'paused') {
       timer.resume();
-      announce('이어서 시작');
+      announce(t('ann_resume'));
     } else {
       return;
     }
@@ -208,12 +210,11 @@
       visualKey = '';
       render();
       updateWakeLock();
-      announce('초기화. ' + V.describeDuration(settings.durationSec) + ' 대기 중');
+      announce(t('ann_reset', { dur: dur(settings.durationSec) }));
     };
     if (timer.status === 'running' || timer.status === 'paused') {
-      confirmDialog('초기화할까요?',
-        '진행 중인 시간이 사라지고 설정한 ' + withRo(V.describeDuration(settings.durationSec)) + ' 돌아갑니다.',
-        '초기화').then(function (ok) { if (ok) doReset(); });
+      confirmDialog(t('reset_title'), t('reset_msg', { dur: dur(settings.durationSec) }), t('reset_ok'))
+        .then(function (ok) { if (ok) doReset(); });
     } else {
       doReset();
     }
@@ -227,7 +228,7 @@
     persistTimer();
     last.status = ''; // 버튼 표시 갱신
     render();
-    announce(withRo(V.describeDuration(settings.durationSec)) + ' 설정했습니다.');
+    announce(t('ann_setDur', { dur: dur(settings.durationSec) }));
   }
 
   el.btnMain.addEventListener('click', mainAction);
@@ -258,7 +259,7 @@
     return new Promise(function (resolve) {
       el.confirmTitle.textContent = title;
       el.confirmMsg.textContent = msg;
-      el.confirmOk.textContent = okLabel || '확인';
+      el.confirmOk.textContent = okLabel || t('ok');
       el.confirm.returnValue = '';
       el.confirm.addEventListener('close', function () {
         resolve(el.confirm.returnValue === 'ok');
@@ -286,7 +287,7 @@
     presentKind = on ? kind : '';
     body.classList.toggle('presenting', on);
     el.btnFull.setAttribute('aria-pressed', String(on));
-    el.btnFullLabel.textContent = on ? '발표 모드 종료' : '전체화면';
+    el.btnFullLabel.textContent = t(on ? 'exitPresent' : 'fullscreen');
     pokeControls();
   }
 
@@ -298,14 +299,14 @@
         if (p && typeof p.then === 'function') {
           p.catch(function () {
             setPresenting(true, 'pseudo');
-            toast('전체화면을 열 수 없어 브라우저 화면 안에서 크게 보여줍니다. Esc 키나 ‘발표 모드 종료’로 닫을 수 있습니다.');
+            toast(t('toast_fsFailed'));
           });
         }
         return;
       } catch (e) { /* 아래 대체 모드로 */ }
     }
     setPresenting(true, 'pseudo');
-    toast('이 브라우저는 전체화면을 지원하지 않아 화면 안에서 크게 보여줍니다. Esc 키나 ‘발표 모드 종료’로 닫을 수 있습니다.', 5000);
+    toast(t('toast_fsUnsupported'), 5000);
   }
 
   function exitPresent() {
@@ -357,7 +358,7 @@
   function wakeIssue() {
     if (wakeNoticeShown) return;
     wakeNoticeShown = true;
-    toast('화면 꺼짐 방지를 사용할 수 없습니다. 필요하면 기기의 자동 잠금(화면 꺼짐) 시간을 늘려 주세요.', 6000);
+    toast(t('toast_wake'), 6000);
   }
 
   function updateWakeLock() {
@@ -424,10 +425,11 @@
   // ======================================================================
   // 설정
   // ======================================================================
+  // [색, 색 이름 번역 키]
   var PRESETS = {
-    base: [['#141518', '차콜'], ['#000000', '검정'], ['#0d1b2a', '짙은 남색'], ['#2b2d31', '짙은 회색'], ['#13261b', '짙은 녹색']],
-    alert: [['#d32f2f', '빨강'], ['#b71c1c', '진한 빨강'], ['#ef6c00', '주황'], ['#f9c80e', '노랑'],
-      ['#2e7d32', '초록'], ['#1565c0', '파랑'], ['#6a1b9a', '보라']]
+    base: [['#141518', 'c_charcoal'], ['#000000', 'c_black'], ['#0d1b2a', 'c_navy'], ['#2b2d31', 'c_darkgray'], ['#13261b', 'c_darkgreen']],
+    alert: [['#d32f2f', 'c_red'], ['#b71c1c', 'c_darkred'], ['#ef6c00', 'c_orange'], ['#f9c80e', 'c_yellow'],
+      ['#2e7d32', 'c_green'], ['#1565c0', 'c_blue'], ['#6a1b9a', 'c_purple']]
   };
 
   var f = {
@@ -456,8 +458,7 @@
       b.style.background = p[0];
       b.style.setProperty('--check', V.textColorFor(p[0]));
       b.dataset.color = p[0];
-      b.setAttribute('aria-label', p[1]);
-      b.title = p[1];
+      b.dataset.nameKey = p[1];
       container.appendChild(b);
       return b;
     });
@@ -465,9 +466,11 @@
     custom.className = 'custom-color';
     var input = document.createElement('input');
     input.type = 'color';
-    input.setAttribute('aria-label', '직접 색 선택');
+    input.className = 'custom-color-input';
+    var customText = document.createElement('span');
+    customText.className = 'custom-color-text';
     custom.appendChild(input);
-    custom.appendChild(document.createTextNode('직접 선택'));
+    custom.appendChild(customText);
     container.appendChild(custom);
 
     var picker = {
@@ -524,14 +527,13 @@
     var dur = V.parseMinSec(f.durMin.value, f.durSec.value);
     if (dur.ok) d.durationSec = dur.sec; else errors.dur = dur.error;
 
-    var alertZero = '1초 이상으로 입력해 주세요. 0초는 종료 시점이라 알림이 보이지 않습니다.';
     d.colorAlert.enabled = f.colorOn.checked;
-    var c = V.parseMinSec(f.colorMin.value, f.colorSec.value, { zeroError: alertZero });
+    var c = V.parseMinSec(f.colorMin.value, f.colorSec.value, { alert: true });
     if (c.ok) d.colorAlert.atSec = c.sec; else if (d.colorAlert.enabled) errors.color = c.error;
     d.colorAlert.color = pickers['colorAlert.color'].value;
 
     d.blinkAlert.enabled = f.blinkOn.checked;
-    var b = V.parseMinSec(f.blinkMin.value, f.blinkSec.value, { zeroError: alertZero });
+    var b = V.parseMinSec(f.blinkMin.value, f.blinkSec.value, { alert: true });
     if (b.ok) d.blinkAlert.atSec = b.sec; else if (d.blinkAlert.enabled) errors.blink = b.error;
     d.blinkAlert.color = pickers['blinkAlert.color'].value;
     var speed = el.form.querySelector('input[name="blink-speed"]:checked');
@@ -544,7 +546,8 @@
     return { draft: d, errors: errors };
   }
 
-  function showError(p, inputs, msg) {
+  function showError(p, inputs, code) {
+    var msg = code ? t('err_' + code, { max: V.MAX_MINUTES }) : '';
     p.hidden = !msg;
     p.textContent = msg || '';
     inputs.forEach(function (i) {
@@ -554,9 +557,9 @@
 
   function fillNotes(ul, list) {
     ul.innerHTML = '';
-    list.forEach(function (t) {
+    list.forEach(function (code) {
       var li = document.createElement('li');
-      li.textContent = t;
+      li.textContent = t('note_' + code);
       ul.appendChild(li);
     });
   }
@@ -574,7 +577,7 @@
 
     var notes = r.errors.dur ? { color: [], blink: [] } : V.settingsNotices(draft);
     if (r.errors.color) notes.color = [];
-    if (r.errors.blink || r.errors.color) notes.blink = notes.blink.filter(function (t) { return t.indexOf('시작과 동시에') === 0; });
+    if (r.errors.blink || r.errors.color) notes.blink = notes.blink.filter(function (code) { return code === 'startNow'; });
     if (r.errors.blink) notes.blink = [];
     fillNotes(f.colorNotes, notes.color);
     fillNotes(f.blinkNotes, notes.blink);
@@ -593,9 +596,7 @@
   function openSettings(focusId) {
     if (isDialogOpen()) return;
     if (timer.status === 'running') {
-      confirmDialog('타이머가 실행 중입니다',
-        '설정을 바꾸려면 먼저 일시정지해야 합니다. 일시정지하고 설정을 열까요?',
-        '일시정지하고 열기').then(function (ok) {
+      confirmDialog(t('running_title'), t('running_msg'), t('running_ok')).then(function (ok) {
         if (!ok) return;
         if (timer.status === 'running') mainAction(); // 일시정지
         reallyOpenSettings(focusId);
@@ -609,9 +610,6 @@
     fillForm(settings);
     refreshReducedMotionUI();
     f.storageNote.hidden = store.persistent;
-    f.wakeNote.textContent = wakeSupported
-      ? '이 브라우저는 화면 꺼짐 방지 기능을 제공합니다. 다만 기기의 절전·배터리 설정에 따라 동작하지 않을 수 있습니다.'
-      : '이 브라우저에서는 화면 꺼짐 방지 기능을 사용할 수 없습니다. 발표 중 화면이 꺼지지 않도록 기기의 자동 잠금(화면 꺼짐) 시간을 늘려 주세요.';
     showDialog(el.settings);
     var target = focusId ? $(focusId) : null;
     el.settings.querySelector('.settings-body').scrollTop = 0;
@@ -624,7 +622,7 @@
     if (firstBad) {
       onFormChange();
       firstBad.focus();
-      toast('입력값을 확인해 주세요.');
+      toast(t('toast_checkInputs'));
       return;
     }
     settings = V.normalizeSettings(r.draft);
@@ -638,7 +636,7 @@
     last.status = '';
     render();
     updateWakeLock();
-    toast(store.persistent ? '설정을 저장했습니다.' : '설정을 적용했습니다. (이 브라우저에는 저장되지 않습니다)', 2500);
+    toast(t(store.persistent ? 'toast_saved' : 'toast_savedLocal'), 2500);
   }
 
   el.form.addEventListener('input', function (e) {
@@ -651,7 +649,7 @@
   f.cancel.addEventListener('click', function () { closeDialog(el.settings); });
   f.defaults.addEventListener('click', function () {
     fillForm(V.defaultSettings());
-    toast('기본값으로 되돌렸습니다. 저장해야 적용됩니다.', 3000);
+    toast(t('toast_defaults'), 3000);
   });
   el.form.addEventListener('click', function (e) {
     var b = e.target.closest('[data-set-min]');
@@ -689,19 +687,18 @@
   function startPreview() {
     var d = readForm().draft;
     var rm = reducedMotionFor(d);
-    var steps = [{ pill: '진행 중', name: '기본 배경', color: d.baseColor, time: V.formatTime(Math.min(d.durationSec, 5999)), ms: 1500 }];
+    var steps = [{ pill: t('st_running'), name: t('pv_base'), color: d.baseColor, time: V.formatTime(Math.min(d.durationSec, 5999)), ms: 1500 }];
     if (d.colorAlert.enabled) {
-      steps.push({ pill: '마무리 시간', name: '배경색 변경 (남은 시간 ' + V.describeDuration(d.colorAlert.atSec) + ' 이하)',
+      steps.push({ pill: t('ph_color'), name: t('pv_color', { dur: dur(d.colorAlert.atSec) }),
         color: d.colorAlert.color, time: V.formatTime(d.colorAlert.atSec), ms: 2500 });
     }
     if (d.blinkAlert.enabled) {
       var period = V.BLINK_PERIOD_MS[d.blinkAlert.speed];
-      steps.push({ pill: '종료 임박', name: '배경 점멸 (남은 시간 ' + V.describeDuration(d.blinkAlert.atSec) + ' 이하)' +
-        (rm ? ' · 동작 줄이기로 고정 표시' : ''),
+      steps.push({ pill: t('ph_blink'), name: t('pv_blink', { dur: dur(d.blinkAlert.atSec) }) + (rm ? t('pv_rm') : ''),
         color: d.blinkAlert.color, dark: V.blinkTone(d.blinkAlert.color), blink: !rm, period: period,
         time: V.formatTime(d.blinkAlert.atSec), ms: Math.max(period * 3, 4000) });
     }
-    steps.push({ pill: '시간 종료', name: '종료 화면', color: d.endColor, time: '00:00', ms: 2500 });
+    steps.push({ pill: t('ph_end'), name: t('pv_end'), color: d.endColor, time: '00:00', ms: 2500 });
 
     stopPreview(true);
     previewState.active = true;
@@ -726,7 +723,7 @@
       void el.preview.offsetWidth;
       el.preview.classList.add('blinking');
     }
-    pv.pill.textContent = '미리보기 · ' + st.pill;
+    pv.pill.textContent = t('previewPrefix') + ' · ' + st.pill;
     pv.time.textContent = st.time;
     pv.step.textContent = (i + 1) + ' / ' + n + ' · ' + st.name;
   }
@@ -744,11 +741,70 @@
   el.previewStart.addEventListener('click', startPreview);
   el.previewStop.addEventListener('click', function () { stopPreview(); });
 
+  // ---- 언어 적용 (처음 열 때, 언어를 바꿀 때) ----
+  var langSelect = $('lang-select');
+  V.LANGS.forEach(function (l) {
+    var o = document.createElement('option');
+    o.value = l.code;
+    o.textContent = l.name;
+    o.lang = l.code;
+    langSelect.appendChild(o);
+  });
+
+  function applyLanguage() {
+    var lang = t.lang;
+    document.documentElement.lang = lang;
+    document.title = t('appTitle');
+    var meta = function (sel, v) { var m = document.querySelector(sel); if (m) m.setAttribute('content', v); };
+    meta('meta[name="description"]', t('appDesc'));
+    meta('meta[name="apple-mobile-web-app-title"]', t('appShort'));
+    // 홈 화면 앱 이름도 언어에 맞춘다(한국어는 기본 매니페스트)
+    var man = document.querySelector('link[rel="manifest"]');
+    if (man) man.setAttribute('href', lang === 'ko' ? 'manifest.webmanifest' : 'manifest-' + lang + '.webmanifest');
+
+    Array.prototype.forEach.call(document.querySelectorAll('[data-i18n]'), function (n) {
+      n.textContent = t(n.getAttribute('data-i18n'));
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-i18n-attr]'), function (n) {
+      n.getAttribute('data-i18n-attr').split(';').forEach(function (pair) {
+        var kv = pair.split(':');
+        if (kv.length === 2) n.setAttribute(kv[0].trim(), t(kv[1].trim()));
+      });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-min], [data-set-min]'), function (b) {
+      b.textContent = t('chipMin', { n: b.getAttribute('data-min') || b.getAttribute('data-set-min') });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.swatch'), function (b) {
+      var name = t(b.dataset.nameKey);
+      b.setAttribute('aria-label', name);
+      b.title = name;
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.custom-color-input'), function (i) {
+      i.setAttribute('aria-label', t('customColorAria'));
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.custom-color-text'), function (s) {
+      s.textContent = t('customColor');
+    });
+    f.wakeNote.textContent = t(wakeSupported ? 'wake_supported' : 'wake_unsupported');
+    langSelect.value = lang;
+
+    el.btnFullLabel.textContent = t(presenting ? 'exitPresent' : 'fullscreen');
+    last.status = '';   // 버튼·상태 문구를 새 언어로 다시 그린다
+    render();
+    fitTime();
+    if (el.settings.open) onFormChange(); // 오류·안내 문구도 새 언어로
+  }
+
+  langSelect.addEventListener('change', function () {
+    t = V.translator(langSelect.value);
+    store.saveLang(t.lang);
+    applyLanguage();
+  });
+
   // ---- 시작 ----
-  render();
-  fitTime();
+  applyLanguage();
   updateWakeLock();
-  if (timer.status === 'running') announce('진행 중인 카운트다운을 복원했습니다.');
+  if (timer.status === 'running') announce(t('ann_restored'));
 
   // ---- 서비스 워커 (HTTPS 또는 localhost에서만) ----
   if ('serviceWorker' in navigator && window.isSecureContext && location.protocol !== 'file:') {

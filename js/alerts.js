@@ -11,7 +11,6 @@
   'use strict';
 
   var BLINK_PERIOD_MS = { slow: 2000, normal: 1500 };
-  var LABELS = { none: '', color: '마무리 시간', blink: '종료 임박', end: '시간 종료' };
 
   /**
    * @param {object} p
@@ -28,7 +27,7 @@
       blink: false,       // 실제로 점멸 애니메이션을 돌릴지
       blinkColor: null,
       periodMs: 0,
-      label: LABELS.none,
+      labelKey: '',       // 화면 문구는 i18n.js가 번역한다: color / blink / end
       fg: '#ffffff'
     };
     r.fg = textColorFor(r.color);
@@ -37,7 +36,7 @@
     if (p.status === 'finished') {
       r.phase = 'end';
       r.color = s.endColor;
-      r.label = LABELS.end;
+      r.labelKey = 'end';
       r.fg = textColorFor(r.color);
       return r;
     }
@@ -50,11 +49,11 @@
       r.periodMs = BLINK_PERIOD_MS[s.blinkAlert.speed] || BLINK_PERIOD_MS.slow;
       // 일시정지 중이거나 동작 줄이기면 점멸 색상으로 고정
       r.blink = p.status === 'running' && !p.reducedMotion;
-      r.label = LABELS.blink;
+      r.labelKey = 'blink';
     } else if (s.colorAlert.enabled && sec <= s.colorAlert.atSec) {
       r.phase = 'color';
       r.color = s.colorAlert.color;
-      r.label = LABELS.color;
+      r.labelKey = 'color';
     }
     r.fg = textColorFor(r.color);
     return r;
@@ -67,21 +66,21 @@
     return elapsed % periodMs;
   }
 
-  /** 설정 화면에 보여줄 안내/경고 목록 */
+  /** 설정 화면에 보여줄 안내 코드 목록 (startNow / sameTime / blinkFirst) */
   function settingsNotices(s) {
     var n = { color: [], blink: [] };
     var dur = s.durationSec;
     if (s.colorAlert.enabled && s.colorAlert.atSec >= dur) {
-      n.color.push('시작과 동시에 이 알림이 적용됩니다.');
+      n.color.push('startNow');
     }
     if (s.blinkAlert.enabled && s.blinkAlert.atSec >= dur) {
-      n.blink.push('시작과 동시에 이 알림이 적용됩니다.');
+      n.blink.push('startNow');
     }
     if (s.colorAlert.enabled && s.blinkAlert.enabled) {
       if (s.blinkAlert.atSec === s.colorAlert.atSec) {
-        n.blink.push('배경색 변경과 시점이 같아 그 시점에 바로 점멸합니다.');
+        n.blink.push('sameTime');
       } else if (s.blinkAlert.atSec > s.colorAlert.atSec) {
-        n.blink.push('점멸 시점이 배경색 변경보다 먼저입니다. 점멸이 우선하므로 배경색 변경은 보이지 않습니다.');
+        n.blink.push('blinkFirst');
       }
     }
     return n;
@@ -161,7 +160,6 @@
     contrast: contrast,
     textColorFor: textColorFor,
     parseHex: parseHex,
-    BLINK_PERIOD_MS: BLINK_PERIOD_MS,
-    ALERT_LABELS: LABELS
+    BLINK_PERIOD_MS: BLINK_PERIOD_MS
   };
 });

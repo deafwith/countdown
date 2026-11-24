@@ -12,6 +12,7 @@
 
   var SETTINGS_KEY = 'visual-countdown.settings.v1';
   var TIMER_KEY = 'visual-countdown.timer.v1';
+  var LANG_KEY = 'visual-countdown.lang.v1';
   var MAX_DURATION_SEC = 99 * 3600 + 59 * 60 + 59; // 99:59:59
   var MAX_MINUTES = 5999;
 
@@ -61,25 +62,26 @@
   }
 
   /**
-   * 분·초 입력값을 검사한다.
-   * @returns {{ok:true, sec:number}|{ok:false, error:string}}
+   * 분·초 입력값을 검사한다. 오류는 코드로 돌려주고 문구는 i18n.js가 번역한다.
+   * @param {{alert?:boolean}} [opts] 알림 시점이면 0초 오류를 alertZero로 구분
+   * @returns {{ok:true, sec:number}|{ok:false, error:'required'|'intOnly'|'secRange'|'minMax'|'zero'|'alertZero'}}
    */
   function parseMinSec(minText, secText, opts) {
     opts = opts || {};
     var mt = String(minText == null ? '' : minText).trim();
     var st = String(secText == null ? '' : secText).trim();
-    if (mt === '' && st === '') return { ok: false, error: '시간을 입력해 주세요.' };
+    if (mt === '' && st === '') return { ok: false, error: 'required' };
     if (mt === '') mt = '0';
     if (st === '') st = '0';
     if (!/^\d+$/.test(mt) || !/^\d+$/.test(st)) {
-      return { ok: false, error: '0 이상의 정수만 입력할 수 있습니다.' };
+      return { ok: false, error: 'intOnly' };
     }
     var m = parseInt(mt, 10), s = parseInt(st, 10);
-    if (s > 59) return { ok: false, error: '초는 0~59 사이로 입력해 주세요.' };
-    if (m > MAX_MINUTES) return { ok: false, error: '분은 ' + MAX_MINUTES + ' 이하로 입력해 주세요.' };
+    if (s > 59) return { ok: false, error: 'secRange' };
+    if (m > MAX_MINUTES) return { ok: false, error: 'minMax' };
     var sec = m * 60 + s;
     if (sec <= 0) {
-      return { ok: false, error: opts.zeroError || '0초보다 큰 시간을 입력해 주세요.' };
+      return { ok: false, error: opts.alert ? 'alertZero' : 'zero' };
     }
     return { ok: true, sec: sec };
   }
@@ -128,6 +130,9 @@
   Store.prototype.saveSettings = function (s) { this.set(SETTINGS_KEY, normalize(s)); };
   Store.prototype.loadTimer = function () { return this.get(TIMER_KEY); };
   Store.prototype.saveTimer = function (state) { this.set(TIMER_KEY, state); };
+  /** 언어는 설정 저장/취소와 별개로 바로 저장한다. */
+  Store.prototype.loadLang = function () { var v = this.get(LANG_KEY); return typeof v === 'string' ? v : ''; };
+  Store.prototype.saveLang = function (code) { this.set(LANG_KEY, code); };
 
   return {
     DEFAULT_SETTINGS: DEFAULTS,

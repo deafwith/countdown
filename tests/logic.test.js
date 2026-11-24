@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const { Countdown, formatTime } = require('../js/timer.js');
 const { evaluate, settingsNotices, blinkOffsetMs, textColorFor, contrast, blinkTone } = require('../js/alerts.js');
 const { defaultSettings, normalizeSettings, parseMinSec, Store } = require('../js/settings.js');
+const { LANGS, I18N_DICT, detectLang, translator } = require('../js/i18n.js');
 
 function clock(start = 1_000_000) {
   const c = { t: start, now: () => c.t, add: (ms) => { c.t += ms; } };
@@ -136,7 +137,7 @@ test('예시 1 — 단계별: 10초 배경색 → 5초 점멸 → 종료', () =>
   const b = phaseAt(s, 5);
   assert.equal(b.phase, 'blink');
   assert.equal(b.blink, true);
-  assert.equal(b.label, '종료 임박');
+  assert.equal(b.labelKey, 'blink');
   assert.equal(phaseAt(s, 0, 'finished').phase, 'end');
   assert.equal(phaseAt(s, 0, 'finished').blink, false);
 });
@@ -146,7 +147,7 @@ test('예시 2 — 같은 시점이면 바로 점멸', () => {
   s.colorAlert.atSec = 5; s.blinkAlert.atSec = 5;
   assert.equal(phaseAt(s, 6).phase, 'none');
   assert.equal(phaseAt(s, 5).phase, 'blink');
-  assert.ok(settingsNotices(s).blink.some((t) => t.includes('바로 점멸')));
+  assert.ok(settingsNotices(s).blink.includes('sameTime'));
 });
 
 test('예시 3 — 배경색 변경만', () => {
@@ -190,7 +191,7 @@ test('동작 줄이기: 점멸 대신 고정 배경 + 문구', () => {
   const a = phaseAt(s, 3, 'running', true);
   assert.equal(a.phase, 'blink');
   assert.equal(a.blink, false);
-  assert.equal(a.label, '종료 임박');
+  assert.equal(a.labelKey, 'blink');
 });
 
 test('점멸 속도: 느리게 2초, 보통 1.5초', () => {
@@ -203,10 +204,10 @@ test('점멸 속도: 느리게 2초, 보통 1.5초', () => {
 test('설정 안내: 점멸이 먼저인 경우, 전체 시간보다 큰 경우', () => {
   const s = quick();
   s.colorAlert.atSec = 5; s.blinkAlert.atSec = 8;
-  assert.ok(settingsNotices(s).blink.some((t) => t.includes('점멸이 우선')));
+  assert.ok(settingsNotices(s).blink.includes('blinkFirst'));
   assert.equal(phaseAt(s, 8).phase, 'blink');
   s.colorAlert.atSec = 30;
-  assert.ok(settingsNotices(s).color.some((t) => t.includes('시작과 동시에')));
+  assert.ok(settingsNotices(s).color.includes('startNow'));
   assert.equal(phaseAt(s, 20).phase, 'color');
 });
 
@@ -231,12 +232,14 @@ test('글자색 대비: 어떤 배경이든 4.5:1 이상 확보 (기본 프리�
 test('입력 검증: 0초·음수·소수·문자·초 60 이상은 거부', () => {
   assert.deepEqual(parseMinSec('20', '0'), { ok: true, sec: 1200 });
   assert.deepEqual(parseMinSec('', '20'), { ok: true, sec: 20 });
-  assert.equal(parseMinSec('0', '0').ok, false);
+  assert.equal(parseMinSec('0', '0').error, 'zero');
+  assert.equal(parseMinSec('0', '0', { alert: true }).error, 'alertZero');
   assert.equal(parseMinSec('-1', '0').ok, false);
   assert.equal(parseMinSec('1.5', '0').ok, false);
-  assert.equal(parseMinSec('abc', '0').ok, false);
-  assert.equal(parseMinSec('1', '60').ok, false);
-  assert.equal(parseMinSec('', '').ok, false);
+  assert.equal(parseMinSec('abc', '0').error, 'intOnly');
+  assert.equal(parseMinSec('1', '60').error, 'secRange');
+  assert.equal(parseMinSec('6000', '0').error, 'minMax');
+  assert.equal(parseMinSec('', '').error, 'required');
 });
 
 test('설정 정규화: 깨진 값은 기본값으로', () => {
@@ -259,4 +262,50 @@ test('저장소를 쓸 수 없어도 메모리로 동작', () => {
   assert.equal(st.persistent, false);
   const none = new Store(null);
   assert.equal(none.loadSettings().durationSec, 1200);
+});
+
+// ---- 다국어 ----
+
+test('다국어: 4개 언어 모두 같은 키를 가진다', () => {
+  assert.deepEqual(LANGS.map((l) => l.code), ['ko', 'ja', 'en', 'vi']);
+  const keys = Object.keys(I18N_DICT.ko).sort();
+  for (const { code } of LANGS) {
+    assert.deepEqual(Object.keys(I18N_DICT[code]).sort(), keys, `${code} 키 불일치`);
+  }
+});
+
+test('다국어: 화면이 쓰는 코드(알림·오류·안내·색)가 모두 번역되어 있다', () => {
+  const codes = [
+    ...['color', 'blink', 'end'].map((c) => 'ph_' + c),
+    ...['required', 'intOnly', 'secRange', 'minMax', 'zero', 'alertZero'].map((c) => 'err_' + c),
+    ...['startNow', 'sameTime', 'blinkFirst'].map((c) => 'note_' + c)
+  ];
+  for (const { code } of LANGS) {
+    const t = translator(code);
+    for (const k of codes) assert.notEqual(t(k), k, `${code}.${k}`);
+  }
+});
+
+test('다국어: 언어 고르기 (저장값 → 브라우저 언어 → 영어)', () => {
+  assert.equal(detectLang('ja', ['ko-KR']), 'ja');
+  assert.equal(detectLang('', ['vi-VN', 'en']), 'vi');
+  assert.equal(detectLang('', ['zh-CN', 'ko']), 'ko');
+  assert.equal(detectLang('xx', ['fr-FR']), 'en');
+  assert.equal(detectLang('', []), 'en');
+});
+
+test('다국어: 시간 읽기와 문구 채우기', () => {
+  assert.equal(translator('ko').duration(1200), '20분');
+  assert.equal(translator('ko').duration(3930), '1시간 5분 30초');
+  assert.equal(translator('ja').duration(3930), '1時間5分30秒');
+  assert.equal(translator('en').duration(60), '1 minute');
+  assert.equal(translator('en').duration(3661), '1 hour 1 minute 1 second');
+  assert.equal(translator('vi').duration(1200), '20 phút');
+  assert.equal(translator('en')('chipMin', { n: 5 }), '5 min');
+  assert.equal(translator('en')('err_minMax', { max: 5999 }), 'Minutes must be 5999 or less.');
+  // 한국어 조사: 받침 없음 → 로, 받침 있음 → 으로
+  const ko = translator('ko');
+  assert.equal(ko('ann_setDur', { dur: '20초' }), '20초로 설정했습니다.');
+  assert.equal(ko('ann_setDur', { dur: '20분' }), '20분으로 설정했습니다.');
+  assert.equal(ko('ann_setDur', { dur: '1시간' }), '1시간으로 설정했습니다.');
 });
